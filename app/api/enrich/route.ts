@@ -8,7 +8,9 @@ function detectScript(text: string): string {
   if (/[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(text)) return "Chinese, Japanese, or Korean"
   if (/[\u0400-\u04FF]/.test(text))                             return "Russian"
   if (/[\u0900-\u097F]/.test(text))                             return "Hindi"
-  return "English"
+  // Latin-script languages (French, Spanish, German, Portuguese, etc.) share
+  // the same Unicode block — let the model detect among them.
+  return "the same language as the note text"
 }
 
 const TRUTH_DEPENDENT_TYPES = new Set([

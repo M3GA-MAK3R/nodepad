@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono, Vazirmatn } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { MobileWall } from '@/components/mobile-wall'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -33,6 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased ${vazirmatn.variable}`} suppressHydrationWarning>
+        <MobileWall />
         {children}
         <Analytics />
       </body>

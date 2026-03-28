@@ -726,12 +726,15 @@ export default function Page() {
   }, [activeProjectId])
 
   const handleChangeType = useCallback((id: string, newType: ContentType) => {
+    const block = blocks.find(b => b.id === id)
+    if (!block) return
     pushHistory(activeProjectId, blocks)
     updateActiveProject(p => ({
       ...p,
-      blocks: p.blocks.map(b => b.id === id ? { ...b, contentType: newType } : b)
+      blocks: p.blocks.map(b => b.id === id ? { ...b, contentType: newType, isEnriching: true } : b)
     }))
-  }, [activeProjectId, blocks, pushHistory, updateActiveProject])
+    enrichBlock(activeProjectId, id, block.text, block.category, newType).catch(console.error)
+  }, [activeProjectId, blocks, pushHistory, updateActiveProject, enrichBlock])
 
   const clearBlocks = useCallback(() => {
     pushHistory(activeProjectId, blocks)

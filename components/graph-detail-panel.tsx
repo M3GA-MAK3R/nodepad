@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { CONTENT_TYPE_CONFIG, type ContentType } from "@/lib/content-types"
 import type { TextBlock } from "@/components/tile-card"
-import { ExternalLink, Link as LinkIcon, Pin, RefreshCw, X } from "lucide-react"
+import { ExternalLink, Link as LinkIcon, Pin, RefreshCw, Tag, X } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -81,21 +82,27 @@ export function GraphDetailPanel({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const annotationRef = React.useRef<HTMLTextAreaElement>(null)
   const [isTypePickerOpen, setIsTypePickerOpen] = React.useState(false)
-  const typePickerRef = React.useRef<HTMLDivElement>(null)
+  const [pickerRect, setPickerRect] = React.useState<DOMRect | null>(null)
+  const typeChangeButtonRef = React.useRef<HTMLButtonElement>(null)
+  const typePickerDropdownRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
     if (!isTypePickerOpen) return
     const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsTypePickerOpen(false) }
-    const handleClick = (e: MouseEvent) => {
-      if (typePickerRef.current && !typePickerRef.current.contains(e.target as Node)) {
+    const handleMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (
+        !typeChangeButtonRef.current?.contains(t) &&
+        !typePickerDropdownRef.current?.contains(t)
+      ) {
         setIsTypePickerOpen(false)
       }
     }
     window.addEventListener("keydown", handleKey)
-    document.addEventListener("mousedown", handleClick)
+    document.addEventListener("mousedown", handleMouseDown)
     return () => {
       window.removeEventListener("keydown", handleKey)
-      document.removeEventListener("mousedown", handleClick)
+      document.removeEventListener("mousedown", handleMouseDown)
     }
   }, [isTypePickerOpen])
 
@@ -179,47 +186,11 @@ export function GraphDetailPanel({
         style={{ background: headerBg, color: headerColor, borderBottom: "1px solid var(--border)" }}
       >
         <div className="flex items-center gap-2 overflow-hidden" style={{ color: "inherit" }}>
-          {/* Type label — click to change type */}
-          <div className="relative" ref={typePickerRef}>
-            <button
-              onClick={() => setIsTypePickerOpen(v => !v)}
-              className="flex items-center gap-1.5 hover:opacity-70 transition-opacity cursor-pointer"
-              title="Change type"
-            >
-              <Icon className="h-3 w-3 flex-shrink-0" />
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider">
-                {config.label}
-              </span>
-            </button>
-            {isTypePickerOpen && (
-              <div
-                className="absolute left-0 top-full mt-1 z-50 rounded-md border border-border bg-card shadow-xl"
-                style={{ minWidth: 200 }}
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="grid grid-cols-2 gap-px p-1.5">
-                  {(Object.entries(CONTENT_TYPE_CONFIG) as [ContentType, typeof CONTENT_TYPE_CONFIG[ContentType]][])
-                    .filter(([t]) => t !== "thesis")
-                    .map(([type, cfg]) => {
-                      const TypeIcon = cfg.icon
-                      const isActive = block.contentType === type
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => { onChangeType(block.id, type); setIsTypePickerOpen(false) }}
-                          className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-all hover:bg-secondary/60 ${isActive ? 'bg-secondary/80' : ''}`}
-                        >
-                          <TypeIcon className="h-3 w-3 flex-shrink-0" style={{ color: cfg.accentVar }} />
-                          <span className="font-mono text-[10px] uppercase tracking-wide" style={{ color: isActive ? cfg.accentVar : undefined }}>
-                            {cfg.label}
-                          </span>
-                        </button>
-                      )
-                    })}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Type display — read-only label; shimmer while enriching */}
+          <Icon className="h-3 w-3 flex-shrink-0" />
+          <span className={`font-mono text-[10px] font-bold uppercase tracking-wider ${block.isEnriching ? "shimmer-text" : ""}`}>
+            {config.label}
+          </span>
           {/* Category tag — read-only, updated by AI on enrichment */}
           <span className="rounded-sm bg-black/10 px-1.5 py-0.5 font-mono text-[8px] font-black uppercase tracking-tighter opacity-60">
             #{block.category || "no-topic"}
@@ -227,6 +198,20 @@ export function GraphDetailPanel({
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0" style={{ color: "inherit" }}>
           <span className="font-mono text-[9px] opacity-60">{date}</span>
+          {/* Change-type button — portal dropdown, clear of panel overflow:hidden */}
+          <button
+            ref={typeChangeButtonRef}
+            onClick={() => {
+              if (typeChangeButtonRef.current) {
+                setPickerRect(typeChangeButtonRef.current.getBoundingClientRect())
+              }
+              setIsTypePickerOpen(v => !v)
+            }}
+            className={`p-1 rounded-sm transition-opacity ${isTypePickerOpen ? "opacity-100 bg-black/20" : "opacity-40 hover:opacity-90"}`}
+            title="Change type"
+          >
+            <Tag className="h-3 w-3" />
+          </button>
           <button
             onClick={() => onTogglePin(block.id)}
             className={`p-1 rounded-sm transition-opacity ${block.isPinned ? "opacity-100" : "opacity-40 hover:opacity-90"}`}
@@ -376,6 +361,47 @@ export function GraphDetailPanel({
           </div>
         )}
       </div>
+
+      {/* Type picker — portal so it escapes the panel's overflow:hidden */}
+      {isTypePickerOpen && pickerRect && createPortal(
+        <div
+          ref={typePickerDropdownRef}
+          className="rounded-md border border-border bg-card shadow-xl"
+          style={{
+            position: "fixed",
+            top: pickerRect.bottom + 4,
+            left: pickerRect.left,
+            minWidth: 210,
+            zIndex: 9999,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <p className="px-2.5 pt-2 pb-1 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/50">
+            Change type
+          </p>
+          <div className="grid grid-cols-2 gap-px p-1.5 pt-0">
+            {(Object.entries(CONTENT_TYPE_CONFIG) as [ContentType, typeof CONTENT_TYPE_CONFIG[ContentType]][])
+              .filter(([t]) => t !== "thesis")
+              .map(([type, cfg]) => {
+                const TypeIcon = cfg.icon
+                const isActive = block.contentType === type
+                return (
+                  <button
+                    key={type}
+                    onClick={() => { onChangeType(block.id, type); setIsTypePickerOpen(false) }}
+                    className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-all hover:bg-secondary/60 ${isActive ? "bg-secondary/80" : ""}`}
+                  >
+                    <TypeIcon className="h-3 w-3 flex-shrink-0" style={{ color: cfg.accentVar }} />
+                    <span className="font-mono text-[10px] uppercase tracking-wide" style={{ color: isActive ? cfg.accentVar : undefined }}>
+                      {cfg.label}
+                    </span>
+                  </button>
+                )
+              })}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

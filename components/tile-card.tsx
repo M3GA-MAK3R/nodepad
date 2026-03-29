@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react"
-import { X, Check, ArrowRight, Pin, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Link as LinkIcon, Sparkles } from "lucide-react"
+import { createPortal } from "react-dom"
+import { X, Check, ArrowRight, Pin, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Link as LinkIcon, Sparkles, Tag } from "lucide-react"
 import { motion } from "framer-motion"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -112,7 +113,9 @@ export const TileCard = memo(function TileCard({
   const [isFooterExpanded, setIsFooterExpanded] = useState(false)
   const [editingMinHeight, setEditingMinHeight] = useState<number | undefined>(undefined)
   const [isTypePickerOpen, setIsTypePickerOpen] = useState(false)
-  const typePickerRef = useRef<HTMLDivElement>(null)
+  const [pickerRect, setPickerRect] = useState<DOMRect | null>(null)
+  const typeChangeButtonRef = useRef<HTMLButtonElement>(null)
+  const typePickerDropdownRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const annotationRef = useRef<HTMLTextAreaElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
@@ -157,20 +160,26 @@ export const TileCard = memo(function TileCard({
     }
   }, [isEditingAnnotation])
 
-  // Close type picker on outside click or Escape
+  // Close type picker on outside click or Escape.
+  // The dropdown renders in a portal so we check both the trigger button
+  // and the floating dropdown div — anything outside both closes the picker.
   useEffect(() => {
     if (!isTypePickerOpen) return
     const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsTypePickerOpen(false) }
-    const handleClick = (e: MouseEvent) => {
-      if (typePickerRef.current && !typePickerRef.current.contains(e.target as Node)) {
+    const handleMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (
+        !typeChangeButtonRef.current?.contains(t) &&
+        !typePickerDropdownRef.current?.contains(t)
+      ) {
         setIsTypePickerOpen(false)
       }
     }
     window.addEventListener("keydown", handleKey)
-    document.addEventListener("mousedown", handleClick)
+    document.addEventListener("mousedown", handleMouseDown)
     return () => {
       window.removeEventListener("keydown", handleKey)
-      document.removeEventListener("mousedown", handleClick)
+      document.removeEventListener("mousedown", handleMouseDown)
     }
   }, [isTypePickerOpen])
 
@@ -328,55 +337,11 @@ export const TileCard = memo(function TileCard({
             </button>
           )}
 
-          {/* Type label — click to open type picker */}
-          <div className="relative" ref={typePickerRef}>
-            <button
-              onClick={e => {
-                e.stopPropagation()
-                if (onChangeType) setIsTypePickerOpen(v => !v)
-              }}
-              className={`flex items-center gap-1.5 flex-shrink-0 transition-opacity ${onChangeType ? 'hover:opacity-70 cursor-pointer' : 'cursor-default'}`}
-              title={onChangeType ? "Change type" : undefined}
-            >
-              <Icon className="h-3 w-3 flex-shrink-0" />
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider truncate max-w-[200px]">
-                {config.label}
-              </span>
-            </button>
-
-            {/* Type picker dropdown */}
-            {isTypePickerOpen && onChangeType && (
-              <div
-                className="absolute left-0 top-full mt-1 z-50 rounded-md border border-border bg-card shadow-xl"
-                style={{ minWidth: 200 }}
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="grid grid-cols-2 gap-px p-1.5">
-                  {(Object.entries(CONTENT_TYPE_CONFIG) as [ContentType, typeof CONTENT_TYPE_CONFIG[ContentType]][])
-                    .filter(([t]) => t !== "thesis")
-                    .map(([type, cfg]) => {
-                      const TypeIcon = cfg.icon
-                      const isActive = block.contentType === type
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => {
-                            onChangeType(block.id, type)
-                            setIsTypePickerOpen(false)
-                          }}
-                          className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-all hover:bg-secondary/60 ${isActive ? 'bg-secondary/80' : ''}`}
-                        >
-                          <TypeIcon className="h-3 w-3 flex-shrink-0" style={{ color: cfg.accentVar }} />
-                          <span className="font-mono text-[10px] uppercase tracking-wide" style={{ color: isActive ? cfg.accentVar : undefined }}>
-                            {cfg.label}
-                          </span>
-                        </button>
-                      )
-                    })}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Type display — read-only label; shimmer while enriching */}
+          <Icon className="h-3 w-3 flex-shrink-0" />
+          <span className={`font-mono text-[10px] font-bold uppercase tracking-wider truncate max-w-[200px] ${block.isEnriching ? "shimmer-text" : ""}`}>
+            {config.label}
+          </span>
 
           {block.isUnrelated && !effectiveCollapsed && (
             <span className="ml-1 rounded-sm bg-black/10 px-1.5 py-0.5 font-mono text-[8px] font-black uppercase tracking-tighter text-black/60">
@@ -437,6 +402,23 @@ export const TileCard = memo(function TileCard({
               <Pin className={`h-2.5 w-2.5 transition-transform ${block.isPinned ? "fill-current" : "-rotate-45"}`} />
             </button>
           )}
+          {/* Change-type button — portal dropdown, clear of tile overflow:hidden */}
+          {onChangeType && !effectiveCollapsed && (
+            <button
+              ref={typeChangeButtonRef}
+              onClick={e => {
+                e.stopPropagation()
+                if (typeChangeButtonRef.current) {
+                  setPickerRect(typeChangeButtonRef.current.getBoundingClientRect())
+                }
+                setIsTypePickerOpen(v => !v)
+              }}
+              className={`flex h-4 w-4 items-center justify-center rounded-sm transition-all ${isTypePickerOpen ? "bg-black/20 opacity-100" : "opacity-40 hover:opacity-100 hover:bg-black/10"}`}
+              title="Change type"
+            >
+              <Tag className="h-2.5 w-2.5" />
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -449,6 +431,53 @@ export const TileCard = memo(function TileCard({
           </button>
         </div>
       </div>
+
+      {/* Type picker — rendered via portal so it escapes tile overflow:hidden */}
+      {isTypePickerOpen && pickerRect && onChangeType && isMounted && createPortal(
+        <div
+          ref={typePickerDropdownRef}
+          className="rounded-md border border-border bg-card shadow-xl"
+          style={{
+            position: "fixed",
+            top: pickerRect.bottom + 4,
+            left: pickerRect.left,
+            minWidth: 210,
+            zIndex: 9999,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <p className="px-2.5 pt-2 pb-1 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/50">
+            Change type
+          </p>
+          <div className="grid grid-cols-2 gap-px p-1.5 pt-0">
+            {(Object.entries(CONTENT_TYPE_CONFIG) as [ContentType, typeof CONTENT_TYPE_CONFIG[ContentType]][])
+              .filter(([t]) => t !== "thesis")
+              .map(([type, cfg]) => {
+                const TypeIcon = cfg.icon
+                const isActive = block.contentType === type
+                return (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      onChangeType(block.id, type)
+                      setIsTypePickerOpen(false)
+                    }}
+                    className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-all hover:bg-secondary/60 ${isActive ? "bg-secondary/80" : ""}`}
+                  >
+                    <TypeIcon className="h-3 w-3 flex-shrink-0" style={{ color: cfg.accentVar }} />
+                    <span
+                      className="font-mono text-[10px] uppercase tracking-wide"
+                      style={{ color: isActive ? cfg.accentVar : undefined }}
+                    >
+                      {cfg.label}
+                    </span>
+                  </button>
+                )
+              })}
+          </div>
+        </div>,
+        document.body
+      )}
 
       {effectiveCollapsed && (
         <div className="flex-1 px-3 py-1.5 overflow-hidden">

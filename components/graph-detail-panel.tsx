@@ -370,7 +370,7 @@ export function GraphDetailPanel({
           style={{
             position: "fixed",
             top: pickerRect.bottom + 4,
-            left: pickerRect.left,
+            right: window.innerWidth - pickerRect.right,
             minWidth: 210,
             zIndex: 9999,
           }}

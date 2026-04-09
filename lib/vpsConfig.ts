@@ -20,3 +20,10 @@ export function saveVPSConfig(config: VPSConfig): void {
 export function clearVPSConfig(): void {
   localStorage.removeItem(VPS_CONFIG_KEY);
 }
+
+export async function fetchVPSPeerId(apiUrl: string): Promise<string> {
+  const res = await fetch(`${apiUrl}/api/v0/id`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to reach Kubo API: ${res.status}`);
+  const data = await res.json();
+  return data.ID as string;
+}

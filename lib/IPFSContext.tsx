@@ -14,6 +14,7 @@ import {
   getVPSConfig,
   saveVPSConfig as persistVPSConfig,
   clearVPSConfig as removeVPSConfig,
+  fetchVPSPeerId,
 } from "@/lib/vpsConfig"
 
 type NodeStatus = "idle" | "starting" | "ready" | "error"
@@ -72,10 +73,23 @@ export function IPFSProvider({ children }: { children: ReactNode }) {
   const [vpsStatus, setVPSStatus] = useState<VPSStatus>("idle")
   const [vpsError, setVPSError] = useState<string | null>(null)
 
-  // Load VPS config from localStorage on mount
+  // Load VPS config from localStorage on mount; auto-fetch peerId if missing
   useEffect(() => {
     const cfg = getVPSConfig()
-    if (cfg) setVPSConfig(cfg)
+    if (cfg) {
+      setVPSConfig(cfg)
+      if (!cfg.peerId && cfg.apiUrl) {
+        fetchVPSPeerId(cfg.apiUrl)
+          .then((id) => {
+            const updated = { ...cfg, peerId: id }
+            persistVPSConfig(updated)
+            setVPSConfig(updated)
+          })
+          .catch(() => {
+            // Silently ignore — user can retry via Test Connection
+          })
+      }
+    }
   }, [])
 
   const handleSaveVPSConfig = useCallback((config: VPSConfig) => {

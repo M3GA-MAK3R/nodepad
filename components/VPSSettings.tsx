@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Server, Save, Trash2 } from "lucide-react"
+import { Server, Save, Trash2, Wifi, Loader2, Copy, Check } from "lucide-react"
 import { useIPFS } from "@/lib/IPFSContext"
 import type { VPSConfig } from "@/lib/vpsConfig"
+import { fetchVPSPeerId } from "@/lib/vpsConfig"
 
 const DEFAULT_API_URL = "http://vps.tail3e8df5.ts.net:5001"
 
@@ -13,6 +14,10 @@ export function VPSSettings() {
   const [enabled, setEnabled] = useState(false)
   const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL)
   const [peerId, setPeerId] = useState("")
+  const [testing, setTesting] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   // Sync local form state from context on mount / config change
   useEffect(() => {
@@ -20,15 +25,45 @@ export function VPSSettings() {
       setEnabled(vpsConfig.enabled)
       setApiUrl(vpsConfig.apiUrl || DEFAULT_API_URL)
       setPeerId(vpsConfig.peerId || "")
+      if (vpsConfig.peerId) setConnected(true)
     }
   }, [vpsConfig])
 
-  const handleSave = () => {
-    const config: VPSConfig = {
-      apiUrl: apiUrl.replace(/\/+$/, ""), // strip trailing slash
-      peerId: peerId.trim(),
-      enabled,
+  const handleTestConnection = async () => {
+    setTesting(true)
+    setConnectError(null)
+    setConnected(false)
+    try {
+      const url = apiUrl.replace(/\/+$/, "")
+      const id = await fetchVPSPeerId(url)
+      setPeerId(id)
+      setConnected(true)
+      // Auto-save config with fetched peer ID
+      const config: VPSConfig = { apiUrl: url, peerId: id, enabled }
+      saveVPSConfig(config)
+    } catch {
+      setConnectError("Cannot reach node — is VPS reachable via Tailscale?")
+      setPeerId("")
+    } finally {
+      setTesting(false)
     }
+  }
+
+  const handleSave = async () => {
+    const url = apiUrl.replace(/\/+$/, "")
+    let id = peerId.trim()
+    // Auto-fetch peer ID if not yet available
+    if (!id) {
+      try {
+        id = await fetchVPSPeerId(url)
+        setPeerId(id)
+        setConnected(true)
+      } catch {
+        setConnectError("Cannot reach node — is VPS reachable via Tailscale?")
+        return
+      }
+    }
+    const config: VPSConfig = { apiUrl: url, peerId: id, enabled }
     saveVPSConfig(config)
   }
 
@@ -37,6 +72,14 @@ export function VPSSettings() {
     setEnabled(false)
     setApiUrl(DEFAULT_API_URL)
     setPeerId("")
+    setConnected(false)
+    setConnectError(null)
+  }
+
+  const handleCopyPeerId = () => {
+    navigator.clipboard.writeText(peerId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const statusLabel =
@@ -85,20 +128,55 @@ export function VPSSettings() {
         />
       </div>
 
-      {/* Peer ID */}
-      <div className="space-y-1">
-        <label className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/60">
-          Peer ID
-        </label>
-        <input
-          type="text"
-          value={peerId}
-          onChange={(e) => setPeerId(e.target.value)}
-          placeholder="12D3Koo..."
-          className="w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/40"
-        />
+      {/* Test Connection */}
+      <div className="space-y-1.5">
+        <button
+          onClick={handleTestConnection}
+          disabled={testing}
+          className="flex items-center gap-1.5 rounded-sm border border-white/10 bg-white/5 px-3 py-1.5 font-mono text-[10px] text-foreground hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {testing ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Wifi className="h-3 w-3" />
+          )}
+          {testing ? "Testing..." : "Test Connection"}
+        </button>
+
+        {connected && peerId && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-[9px] uppercase tracking-wider text-green-400">
+                Connected
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={peerId}
+                readOnly
+                className="flex-1 rounded-sm border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-foreground/70 outline-none cursor-default"
+              />
+              <button
+                onClick={handleCopyPeerId}
+                className="flex items-center justify-center rounded-sm border border-white/10 bg-white/5 p-2 hover:bg-white/10 transition-colors"
+              >
+                {copied ? (
+                  <Check className="h-3 w-3 text-green-400" />
+                ) : (
+                  <Copy className="h-3 w-3 text-muted-foreground" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {connectError && (
+          <p className="font-mono text-[10px] text-red-400">{connectError}</p>
+        )}
+
         <p className="font-mono text-[9px] text-muted-foreground/50">
-          Run <code className="text-primary/70">docker exec nodepad-ipfs ipfs id -f &apos;&lt;id&gt;\n&apos;</code> on your VPS to get the Peer ID
+          Make sure your VPS is reachable via Tailscale before connecting.
         </p>
       </div>
 

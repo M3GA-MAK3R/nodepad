@@ -16,7 +16,12 @@ export type CIDString = string
 let heliaInstance: any = null
 let heliaPromise: Promise<any> | null = null
 
-export async function getHelia() {
+/**
+ * Create/return the singleton Helia node.
+ * If a VPS peer multiaddr is supplied it is added to the bootstrap list so the
+ * browser node discovers the Kubo VPS peer on the Tailscale network.
+ */
+export async function getHelia(vpsPeerMultiaddr?: string) {
   if (typeof window === "undefined") throw new Error("Helia is browser-only")
   if (heliaInstance) return heliaInstance
   if (heliaPromise) return heliaPromise
@@ -28,6 +33,17 @@ export async function getHelia() {
     const { all: wsAllFilters } = await import("@libp2p/websockets/filters")
     const { bootstrap } = await import("@libp2p/bootstrap")
 
+    const bootstrapList = [
+      "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+      "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+      "/dnsaddr/bootstrap.libp2p.io/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp",
+      "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+    ]
+
+    if (vpsPeerMultiaddr) {
+      bootstrapList.push(vpsPeerMultiaddr)
+    }
+
     const node = await createHelia({
       libp2p: {
         transports: [
@@ -35,14 +51,7 @@ export async function getHelia() {
           webSockets({ filter: wsAllFilters }),
         ],
         peerDiscovery: [
-          bootstrap({
-            list: [
-              "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-              "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-              "/dnsaddr/bootstrap.libp2p.io/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp",
-              "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-            ],
-          }),
+          bootstrap({ list: bootstrapList }),
         ],
       },
     })
@@ -52,6 +61,22 @@ export async function getHelia() {
   })()
 
   return heliaPromise
+}
+
+// ── VPS Kubo pin/unpin via HTTP API ─────────────────────────────────────────
+
+/** Pin a CID to the VPS Kubo node via its HTTP API */
+export async function pinToVPS(cid: string, apiUrl: string): Promise<void> {
+  const url = `${apiUrl}/api/v0/pin/add?arg=${cid}&recursive=true`
+  const res = await fetch(url, { method: "POST" })
+  if (!res.ok) throw new Error(`VPS pin failed: ${res.status}`)
+}
+
+/** Unpin a CID from VPS (for cleanup) */
+export async function unpinFromVPS(cid: string, apiUrl: string): Promise<void> {
+  const url = `${apiUrl}/api/v0/pin/rm?arg=${cid}&recursive=true`
+  const res = await fetch(url, { method: "POST" })
+  if (!res.ok) throw new Error(`VPS unpin failed: ${res.status}`)
 }
 
 // ── Publish / Fetch helpers ──────────────────────────────────────────────────

@@ -88,6 +88,35 @@ Nodepad uses [Helia](https://helia.io/) (IPFS in the browser) for peer-to-peer n
 - CIDs are stored in localStorage so you can reference your last published CID
 - IPFS content is **not encrypted** — anyone with the CID can read the notes. For sensitive data, share CIDs privately.
 
+## VPS Pinning Node
+
+By default, IPFS data only lives in the browser's memory — if the tab closes before another peer fetches the CID, the notes are gone. A **VPS pinning node** (Kubo running on your Tailscale network) solves this: the app automatically pins every CID to the VPS after pushing, so the data survives browser/app restarts.
+
+### Setup
+
+1. **Deploy Kubo on your VPS** — see the `vps-setup/` folder in this repo:
+   ```bash
+   cd vps-setup
+   docker compose up -d
+   bash configure-cors.sh
+   ```
+2. **Get the Peer ID**:
+   ```bash
+   docker exec nodepad-ipfs ipfs id -f '<id>\n'
+   ```
+3. **Configure in the app** — open the IPFS Sync panel, scroll to "VPS Node Settings":
+   - Enable "VPS pinning node"
+   - Paste the Kubo API URL (default: `http://vps.tail3e8df5.ts.net:5001`)
+   - Paste the Peer ID from step 2
+   - Save
+
+### How it works
+
+- After every push, the app calls the Kubo HTTP API to pin the CID on the VPS
+- The VPS peer is added to the libp2p bootstrap list so your browser node discovers it directly over Tailscale
+- If VPS pinning fails (e.g. VPS is offline), the local IPFS push still succeeds — VPS errors are shown in the status indicator but don't block sync
+- All devices on the same Tailscale network can reach the VPS node at `vps.tail3e8df5.ts.net`
+
 ## Architecture
 
 - **Next.js static export** (`output: 'export'`) generates a static site in `out/`

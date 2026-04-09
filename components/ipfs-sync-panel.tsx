@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Copy, Check, Upload, Download, Loader2 } from "lucide-react"
 import { useIPFS } from "@/lib/IPFSContext"
+import { getVPSConfig } from "@/lib/vpsConfig"
+import { VPSSettings } from "@/components/VPSSettings"
 import type { TextBlock } from "@/components/tile-card"
 
 interface IPFSSyncPanelProps {
@@ -29,10 +31,17 @@ export function IPFSSyncPanel({ isOpen, onClose, blocks, onMergeNotes }: IPFSSyn
     initRef.current = true
     setNodeStatus("starting")
 
+    // Build VPS bootstrap multiaddr if configured
+    const cfg = getVPSConfig()
+    const vpsPeerMultiaddr =
+      cfg?.enabled && cfg.peerId
+        ? `/dns4/vps.tail3e8df5.ts.net/tcp/4001/p2p/${cfg.peerId}`
+        : undefined
+
     // Use a variable-based import to avoid static bundler analysis
     const mod = "./lib/ipfs"
     import(/* webpackIgnore: true */ mod)
-      .then((m) => m.getHelia())
+      .then((m) => m.getHelia(vpsPeerMultiaddr))
       .then(() => setNodeStatus("ready"))
       .catch((err: unknown) => {
         console.error("Helia init failed:", err)
@@ -211,6 +220,9 @@ export function IPFSSyncPanel({ isOpen, onClose, blocks, onMergeNotes }: IPFSSyn
                   <p className="font-mono text-[10px] text-red-400">{error}</p>
                 </div>
               )}
+
+              {/* VPS Node Settings */}
+              <VPSSettings />
             </div>
           </motion.div>
         </motion.div>

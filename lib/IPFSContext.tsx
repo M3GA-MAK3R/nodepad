@@ -5,11 +5,19 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react"
 import type { TextBlock } from "@/components/tile-card"
+import {
+  type VPSConfig,
+  getVPSConfig,
+  saveVPSConfig as persistVPSConfig,
+  clearVPSConfig as removeVPSConfig,
+} from "@/lib/vpsConfig"
 
 type NodeStatus = "idle" | "starting" | "ready" | "error"
+type VPSStatus = "idle" | "pinning" | "pinned" | "error"
 
 interface IPFSContextValue {
   nodeStatus: NodeStatus
@@ -18,6 +26,11 @@ interface IPFSContextValue {
   setLastCID: (cid: string | null) => void
   syncToIPFS: (notes: TextBlock[]) => Promise<string | null>
   syncFromCID: (cid: string) => Promise<TextBlock[]>
+  vpsConfig: VPSConfig | null
+  vpsStatus: VPSStatus
+  vpsError: string | null
+  saveVPSConfig: (config: VPSConfig) => void
+  clearVPSConfig: () => void
 }
 
 const IPFSContext = createContext<IPFSContextValue>({
@@ -27,6 +40,11 @@ const IPFSContext = createContext<IPFSContextValue>({
   setLastCID: () => {},
   syncToIPFS: async () => null,
   syncFromCID: async () => [],
+  vpsConfig: null,
+  vpsStatus: "idle",
+  vpsError: null,
+  saveVPSConfig: () => {},
+  clearVPSConfig: () => {},
 })
 
 export function useIPFS() {
@@ -50,12 +68,53 @@ export function IPFSProvider({ children }: { children: ReactNode }) {
     return localStorage.getItem("nodepad_ipfs_cid")
   })
 
+  const [vpsConfig, setVPSConfig] = useState<VPSConfig | null>(null)
+  const [vpsStatus, setVPSStatus] = useState<VPSStatus>("idle")
+  const [vpsError, setVPSError] = useState<string | null>(null)
+
+  // Load VPS config from localStorage on mount
+  useEffect(() => {
+    const cfg = getVPSConfig()
+    if (cfg) setVPSConfig(cfg)
+  }, [])
+
+  const handleSaveVPSConfig = useCallback((config: VPSConfig) => {
+    persistVPSConfig(config)
+    setVPSConfig(config)
+    setVPSError(null)
+    setVPSStatus("idle")
+  }, [])
+
+  const handleClearVPSConfig = useCallback(() => {
+    removeVPSConfig()
+    setVPSConfig(null)
+    setVPSError(null)
+    setVPSStatus("idle")
+  }, [])
+
   const syncToIPFS = useCallback(async (notes: TextBlock[]): Promise<string | null> => {
     try {
-      const { publishNotes, setStoredCID } = await loadIPFS()
+      const { publishNotes, setStoredCID, pinToVPS } = await loadIPFS()
       const cid = await publishNotes(notes)
       setStoredCID(cid)
       setLastCID(cid)
+
+      // Pin to VPS if enabled (non-blocking — don't fail the whole sync)
+      const cfg = getVPSConfig()
+      if (cfg?.enabled && cfg.apiUrl) {
+        setVPSStatus("pinning")
+        setVPSError(null)
+        try {
+          await pinToVPS(cid, cfg.apiUrl)
+          setVPSStatus("pinned")
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "VPS pin failed"
+          console.error("VPS pin failed:", err)
+          setVPSError(msg)
+          setVPSStatus("error")
+        }
+      }
+
       return cid
     } catch (err) {
       console.error("IPFS publish failed:", err)
@@ -75,7 +134,19 @@ export function IPFSProvider({ children }: { children: ReactNode }) {
 
   return (
     <IPFSContext.Provider
-      value={{ nodeStatus, lastCID, setNodeStatus, setLastCID, syncToIPFS, syncFromCID }}
+      value={{
+        nodeStatus,
+        lastCID,
+        setNodeStatus,
+        setLastCID,
+        syncToIPFS,
+        syncFromCID,
+        vpsConfig,
+        vpsStatus,
+        vpsError,
+        saveVPSConfig: handleSaveVPSConfig,
+        clearVPSConfig: handleClearVPSConfig,
+      }}
     >
       {children}
     </IPFSContext.Provider>

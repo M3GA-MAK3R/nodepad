@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
   Trello, Grid, Trash2, Clipboard, Download,
   FolderOpen, FolderPlus, BookOpen, Sparkles,
-  FolderDown, FolderInput, GitFork
+  FolderDown, FolderInput, GitFork, Globe
 } from "lucide-react"
 import { Command } from "cmdk"
 import { useModKey } from "@/lib/utils"
@@ -52,6 +52,7 @@ export function VimInput({ onSubmit, onCommand, isCommandKOpen, setIsCommandKOpe
     { id: "new-project",    icon: FolderPlus, label: "New Project", sub: "" },
     { id: "open-index",     icon: BookOpen,   label: "Index",       sub: "" },
     { id: "open-synthesis", icon: Sparkles,   label: "Synthesis",   sub: "" },
+    { id: "open-ipfs",      icon: Globe,      label: "IPFS Sync",   sub: "" },
   ], [])
 
   // ── Filtered items ──────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ export function VimInput({ onSubmit, onCommand, isCommandKOpen, setIsCommandKOpe
   // Section 2: actions [viewCount+navCount .. total)
   const sections = React.useMemo(() => [
     { start: 0,                    count: viewCount,   cols: 3 },
-    { start: viewCount,            count: navCount,    cols: 4 },
+    { start: viewCount,            count: navCount,    cols: 5 },
     { start: viewCount + navCount, count: actionCount, cols: 5 },
   ], [viewCount, navCount, actionCount])
 
@@ -229,7 +230,7 @@ export function VimInput({ onSubmit, onCommand, isCommandKOpen, setIsCommandKOpe
                 )}
               </div>
 
-              <div className="p-3 max-h-[360px] overflow-y-auto scrollbar-none space-y-3">
+              <div className="p-3 max-h-[50vh] md:max-h-[360px] overflow-y-auto scrollbar-none space-y-3">
 
                 {/* ── Views ──────────────────────────────────────────────── */}
                 {viewItems.length > 0 && (
@@ -262,7 +263,7 @@ export function VimInput({ onSubmit, onCommand, isCommandKOpen, setIsCommandKOpe
                 {navItems.length > 0 && (
                   <div className="border-t border-white/10 pt-3">
                     <p className="px-1 pb-2 font-mono text-[8px] font-bold uppercase tracking-[0.2em] text-white/45">Navigate</p>
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className="grid grid-cols-5 gap-1.5">
                       {navItems.map((item, i) => {
                         const idx     = viewCount + i
                         const focused = focusedIdx === idx
@@ -341,7 +342,7 @@ export function VimInput({ onSubmit, onCommand, isCommandKOpen, setIsCommandKOpe
         </AnimatePresence>
 
         {/* ── Main Input Bar ─────────────────────────────────────────────── */}
-        <div className="w-full border-t border-white/20 bg-black/80 backdrop-blur-3xl px-6 py-5 flex items-center gap-4 transition-all duration-300 focus-within:border-primary/40 relative">
+        <div className="w-full border-t border-white/20 bg-black/80 backdrop-blur-3xl px-6 py-5 flex items-center gap-4 transition-all duration-300 focus-within:border-primary/40 relative" style={{ paddingBottom: 'calc(1.25rem + var(--safe-area-bottom, 0px))' }}>
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
 
           <div className="flex items-center gap-3 flex-1">

@@ -33,6 +33,7 @@ interface GraphAreaProps {
   onEditAnnotation: (id: string, annotation: string) => void
   highlightedBlockId?: string | null
   onHighlight?: (id: string | null) => void
+  onDoubleTap?: () => void
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -183,6 +184,7 @@ export function GraphArea({
   onEditAnnotation,
   highlightedBlockId,
   onHighlight,
+  onDoubleTap,
 }: GraphAreaProps) {
   const mod = useModKey()
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -203,6 +205,14 @@ export function GraphArea({
   const didPan      = React.useRef(false)
   const panStart    = React.useRef({ mx: 0, my: 0, tx: 0, ty: 0 })
   const draggedNode = React.useRef<SimNode | null>(null)
+
+  // ── Touch / pointer tracking for pinch-zoom, double-tap, long-press ────
+  const activePointers = React.useRef<Map<number, { x: number; y: number }>>(new Map())
+  const pinchStartDist = React.useRef<number | null>(null)
+  const pinchStartK    = React.useRef(1)
+  const pinchMid       = React.useRef({ x: 0, y: 0 })
+  const lastTapTime    = React.useRef(0)
+  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Container size ───────────────────────────────────────────────────────
   React.useEffect(() => {
@@ -305,7 +315,7 @@ export function GraphArea({
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  // ── Zoom ─────────────────────────────────────────────────────────────────
+  // ── Zoom (mouse wheel) ───────────────────────────────────────────────────
   const handleWheel = React.useCallback((e: React.WheelEvent) => {
     e.preventDefault()
     const f    = e.deltaY < 0 ? 1.1 : 0.9
@@ -318,33 +328,98 @@ export function GraphArea({
     })
   }, [])
 
-  // ── Pan ──────────────────────────────────────────────────────────────────
-  const handleSvgMouseDown = React.useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if ((e.target as Element).closest(".graph-node")) return
-    isPanning.current = true
-    didPan.current    = false
-    panStart.current  = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y }
-  }, [transform])
+  // ── Pointer helpers (unified mouse + touch) ────────────────────────────
 
-  const handleSvgMouseMove = React.useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+  const clearLongPress = React.useCallback(() => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+  }, [])
+
+  const handlePointerDown = React.useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    // Track all active pointers for pinch detection
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    // Two-finger pinch start
+    if (activePointers.current.size === 2) {
+      clearLongPress()
+      const pts = [...activePointers.current.values()]
+      pinchStartDist.current = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y)
+      pinchStartK.current = transform.k
+      const rect = svgRef.current!.getBoundingClientRect()
+      pinchMid.current = {
+        x: (pts[0].x + pts[1].x) / 2 - rect.left,
+        y: (pts[0].y + pts[1].y) / 2 - rect.top,
+      }
+      isPanning.current = false
+      return
+    }
+
+    // Single pointer on empty canvas → pan
+    if (!(e.target as Element).closest(".graph-node")) {
+      isPanning.current = true
+      didPan.current    = false
+      panStart.current  = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y }
+
+      // Double-tap detection (< 300ms between taps)
+      const now = Date.now()
+      if (now - lastTapTime.current < 300) {
+        onDoubleTap?.()
+        lastTapTime.current = 0
+      } else {
+        lastTapTime.current = now
+      }
+    }
+  }, [transform, clearLongPress, onDoubleTap])
+
+  const handlePointerMove = React.useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    // Pinch-to-zoom (two pointers)
+    if (activePointers.current.size === 2 && pinchStartDist.current !== null) {
+      const pts = [...activePointers.current.values()]
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y)
+      const scale = dist / pinchStartDist.current
+      const mid = pinchMid.current
+      setTransform(t => {
+        const k = Math.max(0.2, Math.min(5, pinchStartK.current * scale))
+        return { x: mid.x - (mid.x - t.x) * (k / t.k), y: mid.y - (mid.y - t.y) * (k / t.k), k }
+      })
+      return
+    }
+
+    // Node drag
     if (draggedNode.current && simRef.current) {
+      clearLongPress()
       const rect = svgRef.current!.getBoundingClientRect()
       draggedNode.current.fx = (e.clientX - rect.left  - transform.x) / transform.k
       draggedNode.current.fy = (e.clientY - rect.top   - transform.y) / transform.k
-      // Kick simulation on first actual movement (not on mere mousedown)
       if (simRef.current.alpha() < 0.1) simRef.current.alphaTarget(0.3).restart()
       return
     }
+
+    // Single-pointer pan
     if (!isPanning.current) return
-    didPan.current = true
+    const dx = e.clientX - panStart.current.mx
+    const dy = e.clientY - panStart.current.my
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      didPan.current = true
+      clearLongPress()
+    }
     setTransform(t => ({
       ...t,
-      x: panStart.current.tx + (e.clientX - panStart.current.mx),
-      y: panStart.current.ty + (e.clientY - panStart.current.my),
+      x: panStart.current.tx + dx,
+      y: panStart.current.ty + dy,
     }))
-  }, [transform])
+  }, [transform, clearLongPress])
 
-  const handleSvgMouseUp = React.useCallback(() => {
+  const handlePointerUp = React.useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    activePointers.current.delete(e.pointerId)
+    clearLongPress()
+
+    // Reset pinch when fewer than 2 pointers remain
+    if (activePointers.current.size < 2) {
+      pinchStartDist.current = null
+    }
+
     isPanning.current = false
     if (draggedNode.current) {
       draggedNode.current.fx = null
@@ -352,7 +427,7 @@ export function GraphArea({
       simRef.current?.alphaTarget(0)
       draggedNode.current = null
     }
-  }, [])
+  }, [clearLongPress])
 
   // ── Hover / index-highlight / selection: connected set ───────────────────
   // selectedId is included so selecting a node keeps its connections lit even
@@ -431,12 +506,13 @@ export function GraphArea({
           width="100%"
           height="100%"
           className="select-none"
-          style={{ cursor: isPanning.current ? "grabbing" : "grab" }}
+          style={{ cursor: isPanning.current ? "grabbing" : "grab", touchAction: "none" }}
           onWheel={handleWheel}
-          onMouseDown={handleSvgMouseDown}
-          onMouseMove={handleSvgMouseMove}
-          onMouseUp={handleSvgMouseUp}
-          onMouseLeave={handleSvgMouseUp}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           onClick={() => { if (!didPan.current) setSelectedId(null) }}
         >
           <defs>
@@ -549,24 +625,30 @@ export function GraphArea({
                       cursor:     "pointer",
                       transition: "opacity 0.18s",
                     }}
-                    onMouseDown={e => {
+                    onPointerDown={e => {
                       e.stopPropagation()
                       draggedNode.current = node
+                      // Long-press (500ms) selects/edits on touch
+                      clearLongPress()
+                      longPressTimer.current = setTimeout(() => {
+                        setSelectedId(prev => prev === node.id ? null : node.id)
+                        longPressTimer.current = null
+                      }, 500)
                     }}
                     onClick={e => {
                       e.stopPropagation()
                       setSelectedId(prev => prev === node.id ? null : node.id)
                     }}
-                    onMouseEnter={e => {
+                    onPointerEnter={e => {
                       setHoveredId(node.id)
                       const rect = svgRef.current!.getBoundingClientRect()
                       setTooltip({ id: node.id, x: e.clientX - rect.left, y: e.clientY - rect.top })
                     }}
-                    onMouseMove={e => {
+                    onPointerMove={e => {
                       const rect = svgRef.current!.getBoundingClientRect()
                       setTooltip({ id: node.id, x: e.clientX - rect.left, y: e.clientY - rect.top })
                     }}
-                    onMouseLeave={() => { setHoveredId(null); setTooltip(null) }}
+                    onPointerLeave={() => { setHoveredId(null); setTooltip(null) }}
                   >
                     {/* Index-highlight ring */}
                     {node.id === highlightedBlockId && !isHovered && !isSelected && (

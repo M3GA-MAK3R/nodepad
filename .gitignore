@@ -19,3 +19,9 @@ CLAUDE.md
 ARCHITECTURE.md
 DEMO_TRANSCRIPT.md
 DESIGN_CASE_STUDY.md
+
+# Capacitor native platform folders (generated via `npx cap add`)
+ios/
+android/
+# Static export output
+out/

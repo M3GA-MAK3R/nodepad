@@ -19,6 +19,9 @@ import { generateGhostClient } from "@/lib/ai-ghost"
 import { exportToMarkdown, downloadMarkdown, copyToClipboard } from "@/lib/export"
 import { downloadNodepadFile, parseNodepadFile, NodepadParseError } from "@/lib/nodepad-format"
 import { detectContentType } from "@/lib/detect-content-type"
+import dynamic from "next/dynamic"
+
+const IPFSSyncPanel = dynamic(() => import("@/components/ipfs-sync-panel").then(m => ({ default: m.IPFSSyncPanel })), { ssr: false })
 
 function generateId() {
   return Math.random().toString(36).substring(2, 10)
@@ -51,6 +54,7 @@ export default function Page() {
   const [jumpToSettings, setJumpToSettings] = useState(false)
   const [isIntroOpen, setIsIntroOpen] = useState(false)
   const [showHelpTooltip, setShowHelpTooltip] = useState(false)
+  const [isIPFSPanelOpen, setIsIPFSPanelOpen] = useState(false)
   const helpTooltipTimer = useRef<NodeJS.Timeout | null>(null)
   const { settings, updateSettings, resolvedModelId, currentModel } = useAISettings()
   const debounceTimers = useRef<Record<string, Record<string, NodeJS.Timeout>>>({})
@@ -792,6 +796,8 @@ export default function Page() {
       setIsSidebarOpen(false)
       setIsIndexOpen(false)
       setIsGhostPanelOpen(prev => !prev)
+    } else if (cmd === "open-ipfs") {
+      setIsIPFSPanelOpen(prev => !prev)
     } else if (cmd === "clear") clearBlocks()
     else if (cmd === "help") window.open("https://github.com/albingroen/react-cmdk", "_blank")
     
@@ -834,6 +840,15 @@ export default function Page() {
     
     setIsCommandKOpen(false)
   }, [clearBlocks, addBlock, activeProjectId])
+
+  const handleIPFSMerge = useCallback((incomingNotes: TextBlock[]) => {
+    pushHistory(activeProjectId, blocksRef.current)
+    updateActiveProject(p => {
+      const existingIds = new Set(p.blocks.map(b => b.id))
+      const newNotes = incomingNotes.filter(n => !existingIds.has(n.id))
+      return { ...p, blocks: [...p.blocks, ...newNotes] }
+    })
+  }, [activeProjectId, pushHistory, updateActiveProject])
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
@@ -952,6 +967,7 @@ export default function Page() {
                   onEditAnnotation={editAnnotation}
                   highlightedBlockId={highlightedBlockId}
                   onHighlight={setHighlightedBlockId}
+                  onDoubleTap={() => setIsCommandKOpen(true)}
                 />
               )
             ) : (
@@ -991,6 +1007,18 @@ export default function Page() {
           isCommandKOpen={isCommandKOpen}
           setIsCommandKOpen={setIsCommandKOpen}
         />
+
+        {/* Mobile FAB for command palette (no keyboard shortcut on mobile) */}
+        <button
+          onClick={() => setIsCommandKOpen(prev => !prev)}
+          className="fixed bottom-24 right-4 z-[120] flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg active:scale-95 transition-transform md:hidden"
+          style={{ marginBottom: 'var(--safe-area-bottom)' }}
+          aria-label="Open command palette"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/>
+          </svg>
+        </button>
       </div>
 
       <TileIndex 
@@ -1000,6 +1028,14 @@ export default function Page() {
         onClose={() => setIsIndexOpen(false)}
         isOpen={isIndexOpen}
         viewMode={viewMode}
+      />
+
+      {/* IPFS Sync panel */}
+      <IPFSSyncPanel
+        isOpen={isIPFSPanelOpen}
+        onClose={() => setIsIPFSPanelOpen(false)}
+        blocks={blocks}
+        onMergeNotes={handleIPFSMerge}
       />
 
       {/* First-visit intro video modal */}

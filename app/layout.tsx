@@ -1,7 +1,7 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono, Vazirmatn } from 'next/font/google'
 import Script from 'next/script'
-import { MobileWall } from '@/components/mobile-wall'
+import { Providers } from '@/components/providers'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -11,6 +11,14 @@ const vazirmatn = Vazirmatn({
   variable: "--font-vazirmatn",
   display: "swap",
 });
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+}
 
 export const metadata: Metadata = {
   title: 'nodepad',
@@ -42,8 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased ${vazirmatn.variable}`} suppressHydrationWarning>
-        <MobileWall />
-        {children}
+        <Providers>{children}</Providers>
         {/* Umami analytics — nodepad.space only. Remove or replace with your
             own data-website-id if self-hosting. Safe to delete entirely. */}
         <Script
